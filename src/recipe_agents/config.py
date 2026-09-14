@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     )
 
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "qwen3.5:9b"
+    ollama_model: str = "qwen3:30b-a3b"
     trace_directory: Path = Path("traces")
     trace_capture_content: bool = True
     otel_exporter_otlp_traces_endpoint: str | None = None

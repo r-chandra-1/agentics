@@ -123,3 +123,11 @@ def test_live_gauges_follow_selected_trace_position_and_preserve_missing_metrics
     assert "state.toolStarts-state.toolEnds" in TRACE_UI_HTML
     assert "state.cacheReported?state.cacheRead.toLocaleString():'not reported'" in TRACE_UI_HTML
     assert "setInterval(renderGauges,250)" in TRACE_UI_HTML
+
+
+def test_per_token_stream_events_are_grouped_into_one_live_step() -> None:
+    assert "function isModelStream(ev)" in TRACE_UI_HTML
+    assert "function addModelStream(ev,group,phase,nearBottom)" in TRACE_UI_HTML
+    assert "phase.streamSummary={raw_event_count:0,text_delta_count:0,text:''" in TRACE_UI_HTML
+    assert "if(isModelStream(ev)){addModelStream(ev,group,phase,nearBottom);return}" in TRACE_UI_HTML
+    assert "exact individual events remain in the JSONL trace" in TRACE_UI_HTML
