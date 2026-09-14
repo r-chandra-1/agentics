@@ -81,6 +81,8 @@ the price table.
 `/trace-ui` watches newline-delimited JSON files written under `traces/`. Each
 event contains `session_id`, `turn_id`, agent name, timestamp, and event-specific
 data. Content capture can be disabled with `TRACE_CAPTURE_CONTENT=false`.
+The browser's SSE connection renews every five seconds. That keeps live updates
+continuous while allowing Uvicorn's `--reload` shutdown to finish promptly.
 
 The right-side **Context growth by agent** chart plots provider-reported input
 tokens for every model call across the selected session. Each point is labeled

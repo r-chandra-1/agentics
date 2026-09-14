@@ -8,7 +8,7 @@ import re
 from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from recipe_agents.config import get_settings
@@ -22,6 +22,10 @@ settings = get_settings()
 configure_otel(settings.otel_exporter_otlp_traces_endpoint)
 recorder = TraceRecorder(settings.trace_directory, settings.trace_capture_content)
 service = RecipeService(settings, recorder)
+
+# EventSource reconnects automatically. A short lease prevents an open trace
+# page from keeping Uvicorn's graceful reload/shutdown alive indefinitely.
+TRACE_STREAM_LEASE_SECONDS = 5.0
 
 app = FastAPI(
     title="Recipe Agents Learning Lab",
@@ -88,9 +92,10 @@ async def read_trace(session_id: str, after: int = Query(default=0, ge=0)) -> li
 @app.get("/traces/{session_id}/stream", tags=["tracing"])
 async def stream_trace(
     session_id: str,
+    request: Request,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ) -> StreamingResponse:
-    """Tail a session via Server-Sent Events for the live browser view."""
+    """Tail a session via a renewable SSE lease for the live browser view."""
 
     safe_id = _valid_session_id(session_id)
     try:
@@ -100,7 +105,12 @@ async def stream_trace(
 
     async def event_source() -> AsyncIterator[str]:
         offset = start
-        while True:
+        loop = asyncio.get_running_loop()
+        lease_ends = loop.time() + TRACE_STREAM_LEASE_SECONDS
+        yield "retry: 250\n\n"
+        while loop.time() < lease_ends:
+            if await request.is_disconnected():
+                break
             batch = recorder.read(safe_id, offset)
             for event in batch:
                 yield f"id: {offset}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"

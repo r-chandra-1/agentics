@@ -41,6 +41,14 @@ def test_new_events_and_clicks_share_the_same_inspector_function() -> None:
     assert "card.onclick=()=>show(ev,card)" in TRACE_UI_HTML
 
 
+def test_trace_ui_follows_the_latest_updated_session_by_default() -> None:
+    assert 'id="followlatest" type="checkbox" checked' in TRACE_UI_HTML
+    assert "followLatest.checked?rows[0].session_id" in TRACE_UI_HTML
+    assert "sessions.onchange=()=>{followLatest.checked=false" in TRACE_UI_HTML
+    assert "followLatest.onchange=()=>{if(followLatest.checked)refresh()}" in TRACE_UI_HTML
+    assert "window.addEventListener('pagehide',()=>source?.close())" in TRACE_UI_HTML
+
+
 def test_trace_events_are_grouped_by_request_and_actual_llm_turn() -> None:
     assert "turnGroups=new Map()" in TRACE_UI_HTML
     assert "function requestFor(ev)" in TRACE_UI_HTML

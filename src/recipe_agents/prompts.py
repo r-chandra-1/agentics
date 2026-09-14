@@ -19,6 +19,8 @@ can price your work:
 
 You may omit ingredients, but do not invent other names or units. Keep the
 recipe to one or two servings. The `steps` must be short imperative sentences.
+Submit `steps` as a real JSON array of strings. Never put serialized JSON inside
+a string value, and never add a trailing comma to a field value.
 Do not calculate or mention cost; the orchestrator has a pricing tool for that.
 """
 
@@ -42,8 +44,10 @@ can price your work:
 - pepper / tsp
 
 You may omit ingredients, but do not invent other names or units. Keep the
-recipe to two servings. The `steps` must be short imperative sentences. Do not
-calculate or mention cost; the orchestrator has a pricing tool for that.
+recipe to two servings. The `steps` must be short imperative sentences.
+Submit `steps` as a real JSON array of strings. Never put serialized JSON inside
+a string value, and never add a trailing comma to a field value.
+Do not calculate or mention cost; the orchestrator has a pricing tool for that.
 """
 
 

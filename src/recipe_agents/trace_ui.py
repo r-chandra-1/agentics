@@ -12,7 +12,7 @@ TRACE_UI_HTML = r"""<!doctype html>
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui}
 header{position:sticky;top:0;z-index:2;display:flex;gap:14px;align-items:center;padding:12px 18px;
 background:#ffffff;border-bottom:1px solid var(--line);box-shadow:0 1px 5px #19324a12} h1{font-size:16px;margin:0;color:var(--cyan)}
-select,button{background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:7px}
+select,button{background:var(--panel);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:7px}.followlatest{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;white-space:nowrap}.followlatest input{margin:0}
 .status{margin-left:auto;color:var(--muted)} main{--left-pane:240px;--right-pane:520px;display:grid;grid-template-columns:var(--left-pane) 7px minmax(300px,1fr) 7px var(--right-pane);
 height:calc(100vh - 58px);overflow:hidden}
 aside{padding:16px;color:var(--muted);overflow:auto} aside strong{color:var(--text)}
@@ -70,6 +70,7 @@ font:11px ui-monospace,monospace;text-align:center}.keys{line-height:2;color:var
 .resizer{display:none}#events{max-height:52vh}#inspector{height:55vh;border-left:0;border-top:1px solid var(--line)}}
 </style></head>
 <body><header><h1>Recipe Agent Trace</h1><select id="sessions"><option>waiting for a session…</option></select>
+<label class="followlatest"><input id="followlatest" type="checkbox" checked> Follow latest call</label>
 <button id="clear">Clear view</button><span class="status" id="status">connecting…</span></header>
 <main><aside><strong>What you are seeing</strong><p>Events arrive from FastAPI, the Strands agent loop, each expert tool, and Ollama's raw stream.</p>
 <p><span class="pill">purple</span> model/context<br><span class="pill">orange</span> tool call<br><span class="pill">cyan</span> lifecycle</p>
@@ -97,7 +98,7 @@ font:11px ui-monospace,monospace;text-align:center}.keys{line-height:2;color:var
 <div id="contextdetail" aria-live="polite"><strong id="contextdelta">Waiting</strong><span id="contextcause">Each point will show total input tokens and per-agent change.</span></div></section>
 <pre id="inspectjson">The newest running step will appear here automatically.</pre></section></main>
 <script>
-const sessions=document.querySelector('#sessions'), events=document.querySelector('#events'), status=document.querySelector('#status');
+const sessions=document.querySelector('#sessions'), events=document.querySelector('#events'), status=document.querySelector('#status'),followLatest=document.querySelector('#followlatest');
 const inspectTitle=document.querySelector('#inspecttitle'),inspectMeta=document.querySelector('#inspectmeta'),inspectJson=document.querySelector('#inspectjson');
 const contextChart=document.querySelector('#contextchart'),contextLegend=document.querySelector('#contextlegend'),contextNote=document.querySelector('#contextnote');
 const contextEmpty=document.querySelector('#contextempty'),contextDelta=document.querySelector('#contextdelta'),contextCause=document.querySelector('#contextcause');
@@ -250,7 +251,7 @@ function connect(id){if(!id||id===current)return;if(source)source.close();curren
  source.onmessage=e=>add(JSON.parse(e.data));source.onerror=()=>status.textContent='reconnecting…';}
 async function refresh(){const rows=await fetch('/traces').then(r=>r.json());const before=sessions.value;
  sessions.innerHTML=rows.length?rows.map(x=>`<option value="${x.session_id}">${x.session_id} · ${new Date(x.updated_at).toLocaleTimeString()}</option>`).join(''):'<option>waiting for a session…</option>';
- if(rows.length){const wanted=rows.some(x=>x.session_id===before)?before:(rows.some(x=>x.session_id===preferred)?preferred:rows[0].session_id);
+ if(rows.length){const wanted=preferred&&rows.some(x=>x.session_id===preferred)?preferred:(followLatest.checked?rows[0].session_id:(rows.some(x=>x.session_id===before)?before:rows[0].session_id));
  sessions.value=wanted;preferred=null;connect(sessions.value)}}
 document.addEventListener('keydown',e=>{if(e.defaultPrevented||e.altKey||e.ctrlKey||e.metaKey||e.target.tagName==='SELECT')return;
  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();move(e.key==='ArrowDown'?1:-1);return}
@@ -260,9 +261,10 @@ document.addEventListener('keydown',e=>{if(e.defaultPrevented||e.altKey||e.ctrlK
  if(summary){summary.parentElement.open=e.key==='ArrowRight';return}if(!selected)return;const phase=selected.closest('.modelturn'),request=selected.closest('.turngroup');
  if(e.key==='ArrowRight'){if(request)request.open=true;if(phase)phase.open=true;return}
  if(phase&&phase.open){phase.open=false;phase.querySelector(':scope > summary').focus()}else if(request&&request.open){request.open=false;request.querySelector(':scope > summary').focus()}});
-sessions.onchange=()=>{current='';connect(sessions.value)};document.querySelector('#clear').onclick=()=>{count=0;selected=null;eventCards=[];turnGroups=new Map();resetContext();
+sessions.onchange=()=>{followLatest.checked=false;current='';connect(sessions.value)};followLatest.onchange=()=>{if(followLatest.checked)refresh()};document.querySelector('#clear').onclick=()=>{count=0;selected=null;eventCards=[];turnGroups=new Map();resetContext();
  events.innerHTML='<div class="empty">View cleared; new events will appear here.</div>';inspectTitle.textContent='Live step output';
  inspectMeta.textContent='Waiting for the next event…';inspectJson.textContent='The newest running step will appear here automatically.'};
 new ResizeObserver(()=>renderContextChart()).observe(contextChart);
+window.addEventListener('pagehide',()=>source?.close());
 refresh();setInterval(refresh,1000);setInterval(renderGauges,250);
 </script></body></html>"""
