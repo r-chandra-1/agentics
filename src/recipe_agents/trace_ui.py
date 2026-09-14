@@ -39,6 +39,12 @@ grid-auto-rows:auto;gap:10px;min-width:calc(var(--agent-count) * 220px)}
 .time,.agent{color:var(--muted);font:12px ui-monospace,monospace}.kind{font-weight:700}.turn{margin-left:auto}
 #inspector{min-width:0;min-height:0;border-left:1px solid var(--line);background:#ffffff;display:flex;flex-direction:column;overflow:hidden}
 .inspecthead{padding:14px 16px;border-bottom:1px solid var(--line);background:#f3f7f9}.inspecthead h2{font-size:14px;margin:0 0 5px;color:var(--cyan)}
+#gaugepanel{flex:0 0 auto;padding:10px 16px 11px;border-bottom:1px solid var(--line);background:#fbfdfe}
+.gaugehead{display:flex;align-items:baseline;gap:8px}.gaugehead h2{font-size:14px;margin:0;color:var(--cyan)}#gaugescope{margin-left:auto;color:var(--muted);font:11px ui-monospace,monospace}
+.gaugegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:7px 12px;margin-top:7px}.gauge{min-width:0}.gaugelabel{display:flex;justify-content:space-between;gap:6px;color:var(--muted);font:11px ui-monospace,monospace}
+.gaugevalue{color:var(--text);white-space:nowrap}.gaugetrack{height:5px;margin-top:4px;border-radius:4px;background:#e4ebf0;overflow:hidden}.gaugefill{height:100%;width:0;background:var(--cyan);transition:width .16s ease}
+.gauge:nth-child(3) .gaugefill{background:var(--purple)}.gauge:nth-child(4) .gaugefill{background:var(--orange)}.gauge.unavailable .gaugetrack{background:repeating-linear-gradient(135deg,#e4ebf0,#e4ebf0 4px,#f7f9fb 4px,#f7f9fb 8px)}
+#gaugemeta{margin-top:6px;color:var(--muted);font:11px ui-monospace,monospace}
 #contextpanel{flex:0 0 auto;padding:12px 16px 8px;border-bottom:1px solid var(--line);background:#fff}
 .contexthead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.contexthead h2{font-size:14px;margin:0;color:var(--purple)}
 #contextnote,#contextdetail{color:var(--muted);font:11px/1.4 ui-monospace,monospace}.contexthead #contextnote{margin-left:auto}
@@ -77,6 +83,14 @@ font:11px ui-monospace,monospace;text-align:center}.keys{line-height:2;color:var
 <section id="events"><div class="empty">Send a request to <code>POST /recipes</code>.</div></section>
 <div class="resizer" data-resizer="right" role="separator" aria-label="Resize timeline and inspector columns" aria-orientation="vertical" tabindex="0"></div>
 <section id="inspector"><div class="inspecthead"><h2 id="inspecttitle">Live step output</h2><div id="inspectmeta">Waiting for an event…</div></div>
+<section id="gaugepanel" aria-labelledby="gaugetitle"><div class="gaugehead"><h2 id="gaugetitle">Live counters</h2><span id="gaugescope">through selected step</span></div>
+<div class="gaugegrid">
+<div class="gauge" data-gauge="models"><div class="gaugelabel"><span>LLM calls</span><strong class="gaugevalue">0 / 0</strong></div><div class="gaugetrack" role="progressbar" aria-label="Completed LLM calls"><div class="gaugefill"></div></div></div>
+<div class="gauge" data-gauge="tools"><div class="gaugelabel"><span>Tool calls</span><strong class="gaugevalue">0 / 0</strong></div><div class="gaugetrack" role="progressbar" aria-label="Completed tool calls"><div class="gaugefill"></div></div></div>
+<div class="gauge" data-gauge="tokens"><div class="gaugelabel"><span>Tokens in / out</span><strong class="gaugevalue">—</strong></div><div class="gaugetrack" role="progressbar" aria-label="Output share of reported tokens"><div class="gaugefill"></div></div></div>
+<div class="gauge unavailable" data-gauge="cache"><div class="gaugelabel"><span>Cache read</span><strong class="gaugevalue">not reported</strong></div><div class="gaugetrack" role="progressbar" aria-label="Cache read share of input tokens"><div class="gaugefill"></div></div></div>
+<div class="gauge" data-gauge="ttft"><div class="gaugelabel"><span>Latest TTFT</span><strong class="gaugevalue">—</strong></div><div class="gaugetrack" role="progressbar" aria-label="Latest time to first token as share of model duration"><div class="gaugefill"></div></div></div>
+</div><div id="gaugemeta">active 0 LLM · 0 tools · elapsed 0.00s</div></section>
 <section id="contextpanel" aria-labelledby="contexttitle"><div class="contexthead"><h2 id="contexttitle">Context growth by agent</h2><span id="contextnote">input tokens · all requests</span></div>
 <div id="contextlegend" aria-label="Agent legend"></div><div class="chartwrap"><svg id="contextchart" role="img" aria-labelledby="contexttitle contextdesc"></svg>
 <span id="contextdesc" hidden>Input context tokens for each agent at every model call in this session.</span><div id="contextempty">Waiting for the first model call…</div></div>
@@ -87,9 +101,12 @@ const sessions=document.querySelector('#sessions'), events=document.querySelecto
 const inspectTitle=document.querySelector('#inspecttitle'),inspectMeta=document.querySelector('#inspectmeta'),inspectJson=document.querySelector('#inspectjson');
 const contextChart=document.querySelector('#contextchart'),contextLegend=document.querySelector('#contextlegend'),contextNote=document.querySelector('#contextnote');
 const contextEmpty=document.querySelector('#contextempty'),contextDelta=document.querySelector('#contextdelta'),contextCause=document.querySelector('#contextcause');
+const gauges=new Map([...document.querySelectorAll('[data-gauge]')].map(node=>[node.dataset.gauge,{root:node,value:node.querySelector('.gaugevalue'),track:node.querySelector('.gaugetrack'),fill:node.querySelector('.gaugefill')}]));
+const gaugeMeta=document.querySelector('#gaugemeta'),gaugeScope=document.querySelector('#gaugescope');
 const main=document.querySelector('main'),paneHandles=[...document.querySelectorAll('.resizer')],paneStorageKey='recipe-trace-pane-widths-v1';
 let source=null,current='',count=0,selected=null,eventCards=[],turnGroups=new Map(),preferred=new URLSearchParams(location.search).get('session');
 let contextPoints=[],contextSequence=0,activeContextPoint=null,agentStyles=new Map(),pendingSteps=new Map();
+let gaugeState=newGaugeState();
 const cls=k=>k.includes('tool')?'tool':k.includes('model')||k.includes('reasoning')?'model':k.includes('error')?'error':'';
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 function currentPaneWidths(){return {left:document.querySelector('aside').getBoundingClientRect().width,right:document.querySelector('#inspector').getBoundingClientRect().width}}
@@ -110,7 +127,7 @@ for(const handle of paneHandles){handle.addEventListener('pointerdown',beginResi
  const direction=event.key==='ArrowRight'?1:-1,step=event.shiftKey?40:12,widths=currentPaneWidths();if(handle.dataset.resizer==='left')setPaneWidths(widths.left+direction*step,widths.right,'left',true);else setPaneWidths(widths.left,widths.right-direction*step,'right',true)})}
 window.addEventListener('resize',()=>{const widths=currentPaneWidths();setPaneWidths(widths.left,widths.right)});requestAnimationFrame(initializePanes);
 function show(ev,card){if(selected)selected.classList.remove('selected');selected=card||null;if(selected)selected.classList.add('selected');
- activeContextPoint=card?.closest('.modelturn')?.contextPoint||null;renderContextChart();
+ activeContextPoint=card?.closest('.modelturn')?.contextPoint||null;renderContextChart();renderGauges();
  inspectTitle.textContent=ev.event;inspectMeta.textContent=`${ev.agent} · request ${ev.turn_id} · ${new Date(ev.timestamp).toLocaleTimeString()}`;
  inspectJson.textContent=JSON.stringify(ev.data,null,2);inspectJson.scrollTop=0}
 function reveal(card){const request=card.closest('.turngroup'),phase=card.closest('.modelturn');if(request)request.open=true;if(phase)phase.open=true}
@@ -162,7 +179,19 @@ function finite(value){if(value===null||value===undefined||value==='')return nul
 function agentStyle(agent){if(agentStyles.has(agent))return agentStyles.get(agent);const colors=['var(--series-1)','var(--series-2)','var(--series-3)','var(--series-4)'];
  const style={color:colors[agentStyles.size%colors.length]};agentStyles.set(agent,style);return style}
 function inputTokens(ev){return finite(ev.data?.token_usage?.inputTokens??ev.data?.message?.metadata?.usage?.inputTokens)}
+function tokenValue(ev,key){return finite(ev.data?.token_usage?.[key]??ev.data?.message?.metadata?.usage?.[key])}
 function chartCutoff(){return selected?.traceIndex??Number.POSITIVE_INFINITY}
+function newGaugeState(){return {modelStarts:0,modelEnds:0,toolStarts:0,toolEnds:0,input:0,output:0,reportedTokens:false,cacheRead:0,cacheReported:false,latestTtft:null,latestDuration:null,firstMs:null,lastMs:null}}
+function trackGauge(ev,card){const state=gaugeState,when=eventTime(ev);state.firstMs??=when;state.lastMs=when;if(ev.event==='model_call_start')state.modelStarts++;if(ev.event==='tool_call_start')state.toolStarts++;if(ev.event==='tool_call_end')state.toolEnds++;
+ if(ev.event==='model_call_end'){state.modelEnds++;const inValue=tokenValue(ev,'inputTokens'),outValue=tokenValue(ev,'outputTokens'),cacheValue=tokenValue(ev,'cacheReadInputTokens');if(inValue!==null){state.input+=inValue;state.reportedTokens=true}if(outValue!==null){state.output+=outValue;state.reportedTokens=true}if(cacheValue!==null){state.cacheRead+=cacheValue;state.cacheReported=true}const ttft=finite(ev.data?.ttft_ms);if(ttft!==null){state.latestTtft=ttft;state.latestDuration=finite(ev.data?.duration_ms)}}card.gaugeSnapshot={...state}}
+function setGauge(name,value,ratio,available=true){const gauge=gauges.get(name),percent=available?clamp(Number(ratio)||0,0,1)*100:0;gauge.value.textContent=value;gauge.fill.style.width=percent+'%';gauge.root.classList.toggle('unavailable',!available);
+ gauge.track.setAttribute('aria-valuemin','0');gauge.track.setAttribute('aria-valuemax','100');gauge.track.setAttribute('aria-valuenow',available?String(Math.round(percent)):'0');gauge.track.setAttribute('aria-valuetext',value)}
+function renderGauges(){const card=selected||eventCards.at(-1),state=card?.gaugeSnapshot;if(!state){setGauge('models','0 / 0',0);setGauge('tools','0 / 0',0);setGauge('tokens','—',0,false);setGauge('cache','not reported',0,false);setGauge('ttft','—',0,false);gaugeMeta.textContent='active 0 LLM · 0 tools · elapsed 0.00s';return}
+ setGauge('models',`${state.modelEnds} / ${state.modelStarts}`,state.modelStarts?state.modelEnds/state.modelStarts:0);setGauge('tools',`${state.toolEnds} / ${state.toolStarts}`,state.toolStarts?state.toolEnds/state.toolStarts:0);
+ const tokenTotal=state.input+state.output;setGauge('tokens',state.reportedTokens?`${state.input.toLocaleString()} / ${state.output.toLocaleString()}`:'—',tokenTotal?state.output/tokenTotal:0,state.reportedTokens);setGauge('cache',state.cacheReported?state.cacheRead.toLocaleString():'not reported',state.input?state.cacheRead/state.input:0,state.cacheReported);
+ setGauge('ttft',state.latestTtft===null?'—':shortSeconds(state.latestTtft),state.latestDuration?state.latestTtft/state.latestDuration:0,state.latestTtft!==null);
+ const activeModels=Math.max(0,state.modelStarts-state.modelEnds),activeTools=Math.max(0,state.toolStarts-state.toolEnds),atLiveEdge=card===eventCards.at(-1),elapsedEnd=atLiveEdge&&(activeModels||activeTools)?Date.now():state.lastMs;
+ gaugeMeta.textContent=`active ${activeModels} LLM · ${activeTools} tools · elapsed ${shortSeconds(elapsedEnd-state.firstMs)}`;gaugeScope.textContent=`through step ${card.traceIndex+1} of ${eventCards.length}`}
 function pointValue(point,cutoff=chartCutoff()){return point.actual!==null&&point.endEventIndex<=cutoff?point.actual:point.projected}
 function previousPoint(point,cutoff=chartCutoff()){return contextPoints.filter(other=>other.agent===point.agent&&other.sequence<point.sequence&&other.startEventIndex<=cutoff&&pointValue(other,cutoff)!==null).at(-1)||null}
 function pointDelta(point,cutoff=chartCutoff()){const previous=previousPoint(point,cutoff);return previous?pointValue(point,cutoff)-pointValue(previous,cutoff):null}
@@ -212,9 +241,9 @@ function add(ev){const nearBottom=events.scrollHeight-events.scrollTop-events.cl
  card.setAttribute('aria-keyshortcuts','ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown');eventCards.push(card);
  const row=document.createElement('span');row.className='eventline';row.innerHTML='<span class="time"></span><span class="agent"></span><span class="kind"></span><span class="time turn"></span>';
  row.children[0].textContent=new Date(ev.timestamp).toLocaleTimeString();row.children[1].textContent=ev.agent;row.children[2].textContent=ev.event;
- row.children[3].textContent=cls(ev.event)||'lifecycle';card.append(row);card.onclick=()=>show(ev,card);phase.body.append(card);trackContext(ev,group,phase,card);
+ row.children[3].textContent=cls(ev.event)||'lifecycle';card.append(row);card.onclick=()=>show(ev,card);phase.body.append(card);trackContext(ev,group,phase,card);trackGauge(ev,card);
  show(ev,card);if(nearBottom)events.scrollTop=events.scrollHeight}
-function resetContext(){contextPoints=[];contextSequence=0;activeContextPoint=null;agentStyles=new Map();pendingSteps=new Map();renderContextChart()}
+function resetContext(){contextPoints=[];contextSequence=0;activeContextPoint=null;agentStyles=new Map();pendingSteps=new Map();gaugeState=newGaugeState();renderContextChart();renderGauges()}
 function connect(id){if(!id||id===current)return;if(source)source.close();current=id;count=0;selected=null;eventCards=[];turnGroups=new Map();resetContext();events.innerHTML='<div class="empty">Loading trace…</div>';
  inspectTitle.textContent='Live step output';inspectMeta.textContent='Loading '+id+'…';inspectJson.textContent='The newest event will appear automatically.';
  source=new EventSource(`/traces/${encodeURIComponent(id)}/stream`);source.onopen=()=>status.textContent='live · '+id;
@@ -235,5 +264,5 @@ sessions.onchange=()=>{current='';connect(sessions.value)};document.querySelecto
  events.innerHTML='<div class="empty">View cleared; new events will appear here.</div>';inspectTitle.textContent='Live step output';
  inspectMeta.textContent='Waiting for the next event…';inspectJson.textContent='The newest running step will appear here automatically.'};
 new ResizeObserver(()=>renderContextChart()).observe(contextChart);
-refresh();setInterval(refresh,1000);
+refresh();setInterval(refresh,1000);setInterval(renderGauges,250);
 </script></body></html>"""

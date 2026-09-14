@@ -103,3 +103,15 @@ def test_context_chart_follows_selected_trace_position_and_names_steps() -> None
     assert "class:'chart-focus-line'" in TRACE_UI_HTML
     assert "ev.event==='tool_call_end'" in TRACE_UI_HTML
     assert "' after '+point.afterSteps.join(', ')" in TRACE_UI_HTML
+
+
+def test_live_gauges_follow_selected_trace_position_and_preserve_missing_metrics() -> None:
+    for name in ("models", "tools", "tokens", "cache", "ttft"):
+        assert f'data-gauge="{name}"' in TRACE_UI_HTML
+    assert "function renderGauges()" in TRACE_UI_HTML
+    assert "function trackGauge(ev,card)" in TRACE_UI_HTML
+    assert "card.gaugeSnapshot={...state}" in TRACE_UI_HTML
+    assert "state.modelStarts-state.modelEnds" in TRACE_UI_HTML
+    assert "state.toolStarts-state.toolEnds" in TRACE_UI_HTML
+    assert "state.cacheReported?state.cacheRead.toLocaleString():'not reported'" in TRACE_UI_HTML
+    assert "setInterval(renderGauges,250)" in TRACE_UI_HTML

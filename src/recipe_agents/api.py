@@ -12,7 +12,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from recipe_agents.config import get_settings
-from recipe_agents.schemas import HealthResponse, RecipeRequest, RecipeResponse
+from recipe_agents.schemas import HealthResponse, RecipeBatchResponse, RecipeRequest
 from recipe_agents.service import RecipeService, RecipeServiceError
 from recipe_agents.trace_ui import TRACE_UI_HTML
 from recipe_agents.tracing import TraceRecorder, configure_otel
@@ -25,7 +25,7 @@ service = RecipeService(settings, recorder)
 
 app = FastAPI(
     title="Recipe Agents Learning Lab",
-    version="0.1.0",
+    version="0.2.0",
     description=(
         "A small observable Strands multi-agent system. Use POST /recipes, then open /trace-ui "
         "to study each model turn, context window, tool call, and metric."
@@ -46,12 +46,12 @@ async def health() -> HealthResponse:
     return HealthResponse(model=settings.ollama_model, ollama_host=settings.ollama_host)
 
 
-@app.post("/recipes", response_model=RecipeResponse, tags=["recipes"])
-async def create_recipe(request: RecipeRequest, response: Response) -> RecipeResponse:
-    """Run one observable orchestration turn and return exactly four JSON keys.
+@app.post("/recipes", response_model=RecipeBatchResponse, tags=["recipes"])
+async def create_recipe(request: RecipeRequest, response: Response) -> RecipeBatchResponse:
+    """Run one observable orchestration turn and return one result per requested item.
 
     Session metadata lives in response headers so it does not pollute the requested
-    recipe object. Send `X-Session-ID` back in the next request body's `session_id`
+    recipe batch. Send `X-Session-ID` back in the next request body's `session_id`
     to preserve conversation history.
     """
 

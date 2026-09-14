@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from recipe_agents.agents import AgentBundle, build_agent_bundle
 from recipe_agents.config import Settings
-from recipe_agents.schemas import RecipeResponse
+from recipe_agents.schemas import RecipeBatchResponse
 from recipe_agents.tracing import TraceRecorder
 
 
@@ -29,7 +29,7 @@ class Session:
 
 @dataclass(frozen=True)
 class TurnResult:
-    response: RecipeResponse
+    response: RecipeBatchResponse
     session_id: str
     turn_id: str
 
@@ -102,10 +102,10 @@ class RecipeService:
                     raise RecipeServiceError("Orchestrator returned no Pydantic structured output.")
 
                 try:
-                    response = RecipeResponse.model_validate(output)
+                    response = RecipeBatchResponse.model_validate(output)
                 except Exception as exc:
                     self.recorder.emit("api_error", error=repr(exc), structured_output=output)
-                    raise RecipeServiceError(f"Invalid RecipeResponse: {exc}") from exc
+                    raise RecipeServiceError(f"Invalid RecipeBatchResponse: {exc}") from exc
 
                 self.recorder.emit(
                     "api_response",

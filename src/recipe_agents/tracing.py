@@ -83,6 +83,37 @@ class TraceRecorder:
         self.directory.mkdir(parents=True, exist_ok=True)
         self.capture_content = capture_content
         self._lock = threading.Lock()
+        self._timing_lock = threading.Lock()
+        self._active_model_calls: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def begin_model_call(self, agent: str) -> None:
+        """Start provider timing for one agent call in the active trace context."""
+
+        key = (_session_id.get(), _turn_id.get(), agent)
+        with self._timing_lock:
+            self._active_model_calls[key] = {"started": time.perf_counter(), "ttft_ms": None}
+
+    def note_first_model_stream(self, agent: str) -> float | None:
+        """Return TTFT once, when the first provider stream event arrives."""
+
+        key = (_session_id.get(), _turn_id.get(), agent)
+        with self._timing_lock:
+            timing = self._active_model_calls.get(key)
+            if timing is None or timing["ttft_ms"] is not None:
+                return None
+            timing["ttft_ms"] = round((time.perf_counter() - timing["started"]) * 1000, 3)
+            return timing["ttft_ms"]
+
+    def finish_model_call(self, agent: str) -> tuple[float | None, float | None]:
+        """Finish one model timer and return (duration_ms, ttft_ms)."""
+
+        key = (_session_id.get(), _turn_id.get(), agent)
+        with self._timing_lock:
+            timing = self._active_model_calls.pop(key, None)
+        if timing is None:
+            return None, None
+        duration_ms = round((time.perf_counter() - timing["started"]) * 1000, 3)
+        return duration_ms, timing["ttft_ms"]
 
     @contextmanager
     def context(self, session_id: str, turn_id: str) -> Iterator[None]:
@@ -154,7 +185,6 @@ class LearningTraceHooks(HookProvider):
 
     def __init__(self, recorder: TraceRecorder) -> None:
         self.recorder = recorder
-        self._model_started: dict[tuple[str, str, str], float] = {}
 
     def register_hooks(self, registry: HookRegistry, **_: Any) -> None:
         registry.add_callback(BeforeInvocationEvent, self.before_invocation)
@@ -184,8 +214,7 @@ class LearningTraceHooks(HookProvider):
 
     def before_model(self, event: BeforeModelCallEvent) -> None:
         name = self._agent_name(event)
-        key = (_session_id.get(), _turn_id.get(), name)
-        self._model_started[key] = time.perf_counter()
+        self.recorder.begin_model_call(name)
         self.recorder.emit(
             "model_call_start",
             agent=name,
@@ -197,8 +226,7 @@ class LearningTraceHooks(HookProvider):
 
     def after_model(self, event: AfterModelCallEvent) -> None:
         name = self._agent_name(event)
-        key = (_session_id.get(), _turn_id.get(), name)
-        started = self._model_started.pop(key, None)
+        duration_ms, ttft_ms = self.recorder.finish_model_call(name)
         response = event.stop_response
         metadata = response.message.get("metadata", {}) if response else {}
         usage = metadata.get("usage", {})
@@ -206,7 +234,8 @@ class LearningTraceHooks(HookProvider):
         self.recorder.emit(
             "model_call_end",
             agent=name,
-            duration_ms=round((time.perf_counter() - started) * 1000, 3) if started else None,
+            duration_ms=duration_ms,
+            ttft_ms=ttft_ms,
             stop_reason=response.stop_reason if response else None,
             message=response.message if response else None,
             token_usage={
@@ -266,6 +295,9 @@ def make_stream_callback(recorder: TraceRecorder, agent_name: str):
     """
 
     def callback(**event: Any) -> None:
+        ttft_ms = recorder.note_first_model_stream(agent_name)
+        if ttft_ms is not None:
+            recorder.emit("model_first_stream", agent=agent_name, ttft_ms=ttft_ms)
         if "event" in event:
             recorder.emit("raw_model_stream", agent=agent_name, raw_event=event["event"])
         elif event.get("reasoning"):

@@ -9,7 +9,7 @@ from strands.models.ollama import OllamaModel
 from recipe_agents.config import Settings
 from recipe_agents.pricing import calculate_cost, lookup_availability
 from recipe_agents.prompts import COFFEE_EXPERT_PROMPT, ORCHESTRATOR_PROMPT, SOUP_EXPERT_PROMPT
-from recipe_agents.schemas import IngredientAmount, RecipeDraft, RecipeResponse
+from recipe_agents.schemas import IngredientAmount, RecipeBatchResponse, RecipeDraft
 from recipe_agents.tracing import LearningTraceHooks, TraceRecorder, make_stream_callback
 
 
@@ -54,7 +54,7 @@ class AgentBundle:
 
 
 class OrchestrationOrderGuard(HookProvider):
-    """Enforce two teaching-flow invariants that prompts cannot guarantee.
+    """Enforce teaching-flow invariants that prompts cannot guarantee.
 
     The LLM still selects tools. If it chooses an invalid order, Strands returns
     this cancellation message as a tool error and gives the model another turn.
@@ -68,24 +68,45 @@ class OrchestrationOrderGuard(HookProvider):
     def before_tool(self, event: BeforeToolCallEvent) -> None:
         state = event.invocation_state
         tool_name = event.tool_use.get("name")
+        tool_input = event.tool_use.get("input") or {}
 
         if tool_name == "check_recipe_availability":
-            state["recipe_availability_checked_this_turn"] = True
+            item = str(tool_input.get("item", "")).strip().lower()
+            checked_items = state.setdefault("recipe_checked_items_this_turn", [])
+            if item and item not in checked_items:
+                checked_items.append(item)
             return
 
-        if tool_name in {"coffee_expert", "soup_expert", "estimate_ingredient_cost", "RecipeResponse"}:
-            if not state.get("recipe_availability_checked_this_turn"):
+        if tool_name in {"coffee_expert", "soup_expert", "estimate_ingredient_cost", "RecipeBatchResponse"}:
+            if not state.get("recipe_checked_items_this_turn"):
                 event.cancel_tool = (
                     "Availability must be checked in this turn. Call "
                     "check_recipe_availability before any expert, pricing, or final response."
                 )
                 return
 
+        if tool_name in {"coffee_expert", "soup_expert"}:
+            item = tool_name.removesuffix("_expert")
+            if item not in state.get("recipe_checked_items_this_turn", []):
+                event.cancel_tool = f"Check availability for {item} before calling {tool_name}."
+                return
+            state["recipe_expert_calls_this_turn"] = state.get("recipe_expert_calls_this_turn", 0) + 1
+
         if tool_name == "estimate_ingredient_cost":
-            if state.get("recipe_pricing_called_this_turn"):
-                event.cancel_tool = "Pricing already ran in this turn; submit RecipeResponse now."
-            else:
-                state["recipe_pricing_called_this_turn"] = True
+            expert_calls = state.get("recipe_expert_calls_this_turn", 0)
+            pricing_calls = state.get("recipe_pricing_calls_this_turn", 0)
+            if pricing_calls >= expert_calls:
+                event.cancel_tool = "Each pricing call needs a preceding supported-item expert result."
+                return
+            state["recipe_pricing_calls_this_turn"] = pricing_calls + 1
+
+        if tool_name == "RecipeBatchResponse":
+            expert_calls = state.get("recipe_expert_calls_this_turn", 0)
+            pricing_calls = state.get("recipe_pricing_calls_this_turn", 0)
+            if pricing_calls < expert_calls:
+                event.cancel_tool = (
+                    "Price every supported expert recipe before submitting RecipeBatchResponse."
+                )
 
 
 def _model(settings: Settings) -> OllamaModel:
@@ -134,20 +155,26 @@ def build_agent_bundle(settings: Settings, recorder: TraceRecorder) -> AgentBund
 
     orchestrator = Agent(
         name="recipe_orchestrator",
-        description="Checks availability, selects one specialist, prices ingredients, and compiles JSON.",
+        description="Checks every requested item, routes specialists, prices recipes, and compiles JSON.",
         model=_model(settings),
         system_prompt=ORCHESTRATOR_PROMPT,
-        structured_output_model=RecipeResponse,
+        structured_output_model=RecipeBatchResponse,
         tools=[
             check_recipe_availability,
             coffee_expert.as_tool(
                 name="coffee_expert",
-                description="Create a structured coffee recipe for the complete user request.",
+                description=(
+                    "Create one structured coffee recipe for the coffee variation named in the input. "
+                    "Include the complete user request for preferences and constraints."
+                ),
                 preserve_context=False,
             ),
             soup_expert.as_tool(
                 name="soup_expert",
-                description="Create a structured soup recipe for the complete user request.",
+                description=(
+                    "Create one structured soup recipe for the soup variation named in the input. "
+                    "Include the complete user request for preferences and constraints."
+                ),
                 preserve_context=False,
             ),
             estimate_ingredient_cost,

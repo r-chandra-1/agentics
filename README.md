@@ -7,7 +7,7 @@ This deliberately small project shows a complete agentic loop:
 3. It routes supported requests to either a coffee or soup expert agent.
 4. The expert returns a recipe and normalized ingredient quantities.
 5. A deterministic pricing tool looks up fixed prices and totals the recipe.
-6. The orchestrator returns a Pydantic-validated JSON response.
+6. The orchestrator returns one Pydantic-validated result per requested item.
 7. A live trace page shows model turns, context, exposed reasoning blocks,
    tool schemas, tool inputs/results, token usage, stop reasons, and timings.
 
@@ -39,7 +39,20 @@ curl -s http://localhost:8000/recipes \
 ```
 
 The response includes `X-Session-ID` and `X-Turn-ID` headers while the JSON body
-keeps exactly the requested four fields. Inspect the headers with `-i`, then
+wraps the four fields for each requested item in a `recipes` array. This makes
+single- and multi-item requests use the same predictable contract:
+
+```json
+{
+  "recipes": [
+    {"item": "coffee", "description": "...", "recipe": "...", "cost": "$0.42 USD"},
+    {"item": "soup", "description": "...", "recipe": "...", "cost": "$2.18 USD"}
+  ]
+}
+```
+
+Try both experts in one request with `"Give me a latte and tomato soup"`.
+Inspect the headers with `-i`, then
 continue the same application session by putting that session ID in the body:
 
 ```bash
@@ -78,6 +91,12 @@ in when Ollama returns the actual count. The graph stops at the event selected
 in the middle column, emphasizes the current growth segment, and names completed
 tools observed between the agent's two calls. Click a point to open that
 model-call event in the inspector.
+
+Above that graph, compact live gauges follow the selected trace position. They
+show completed/started LLM calls and tools, cumulative input/output tokens,
+cache-read share, latest time-to-first-token (TTFT), active work, and elapsed
+time. Missing provider cache data is labeled `not reported` rather than shown as
+zero. During a running step, the elapsed counter updates four times per second.
 
 Within each Request, the center timeline uses one lane per agent. Every model
 call shows its offset from the request start and its duration. Calls whose

@@ -62,12 +62,22 @@ class CostEstimate(BaseModel):
 
 
 class RecipeResponse(BaseModel):
-    """The exact four-key JSON object returned by `POST /recipes`."""
+    """One requested item's exact four-key recipe result."""
 
     item: str = Field(description="Normalized item name.")
     description: str = Field(description="A brief description or availability explanation.")
     recipe: str = Field(description="Ingredients and numbered method, or an empty string.")
     cost: str = Field(description="Estimated ingredient cost, e.g. '$2.31 USD'.")
+
+
+class RecipeBatchResponse(BaseModel):
+    """All requested items, kept in the same order as the user's prompt."""
+
+    recipes: list[RecipeResponse] = Field(
+        min_length=1,
+        max_length=8,
+        description="One result per distinct requested item; never omit an unsupported item.",
+    )
 
 
 class HealthResponse(BaseModel):
