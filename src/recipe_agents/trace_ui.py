@@ -72,7 +72,7 @@ font:11px ui-monospace,monospace;text-align:center}.keys{line-height:2;color:var
 <body><header><h1>Recipe Agent Trace</h1><select id="sessions"><option>waiting for a session…</option></select>
 <label class="followlatest"><input id="followlatest" type="checkbox" checked> Follow latest call</label>
 <button id="clear">Clear view</button><span class="status" id="status">connecting…</span></header>
-<main><aside><strong>What you are seeing</strong><p>Events arrive from FastAPI, the deterministic Python orchestrator, the Strands experts, and Ollama's raw stream.</p>
+<main><aside><strong>What you are seeing</strong><p>Events arrive from FastAPI, the Strands agent loop, each expert tool, and Ollama's raw stream.</p>
 <p><span class="pill">purple</span> model/context<br><span class="pill">orange</span> tool call<br><span class="pill">cyan</span> lifecycle</p>
 <p><strong>Request</strong> means one user/API message. Inside it, each agent has a lane. Calls are ordered by start time; overlapping calls share a row and appear side by side.</p>
 <p><strong>Context growth</strong> follows the selected event. The label at each point is the change since that same agent's previous call; the emphasized segment names the preceding tool step, and a hollow point is the live projection.</p>
@@ -235,16 +235,9 @@ function trackContext(ev,group,phase,card){if(ev.event==='tool_call_end'){const 
    startCard:card,startEventIndex:card.traceIndex,endCard:null,endEventIndex:Number.POSITIVE_INFINITY,afterSteps};contextPoints.push(point);phase.contextPoint=point;phase.root.contextPoint=point}
  else if(ev.event==='model_call_end'&&phase.contextPoint){const actual=inputTokens(ev);if(actual!==null)phase.contextPoint.actual=actual;phase.contextPoint.endCard=card;phase.contextPoint.endEventIndex=card.traceIndex}
  renderContextChart()}
-function isModelStream(ev){return ev.event==='raw_model_stream'||ev.event==='model_text_delta'}
-function addModelStream(ev,group,phase,nearBottom){let card=phase.streamCard;if(!card){card=document.createElement('button');card.type='button';card.className='event model';card.traceIndex=eventCards.length;
-  card.setAttribute('aria-keyshortcuts','ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown');eventCards.push(card);const row=document.createElement('span');row.className='eventline';row.innerHTML='<span class="time"></span><span class="agent"></span><span class="kind"></span><span class="time turn">stream</span>';card.append(row);card.onclick=()=>show(card.traceEvent,card);phase.body.append(card);
-  phase.streamCard=card;phase.streamSummary={raw_event_count:0,text_delta_count:0,text:'',latest_raw_event:null,note:'Per-token events are grouped here; exact individual events remain in the JSONL trace and /traces API.'}}
- const summary=phase.streamSummary;if(ev.event==='raw_model_stream'){summary.raw_event_count++;summary.latest_raw_event=ev.data?.raw_event??null}else{summary.text_delta_count++;summary.text+=ev.data?.text??''}
- card.traceEvent={...ev,event:'model_stream',data:summary};const row=card.firstElementChild;row.children[0].textContent=new Date(ev.timestamp).toLocaleTimeString();row.children[1].textContent=ev.agent;row.children[2].textContent=`model_stream · ${summary.raw_event_count+summary.text_delta_count} chunks`;trackGauge(ev,card);show(card.traceEvent,card);if(nearBottom)events.scrollTop=events.scrollHeight}
 function add(ev){const nearBottom=events.scrollHeight-events.scrollTop-events.clientHeight<64;if(!count++)events.innerHTML='';
  const group=requestFor(ev);group.count++;group.countLabel.textContent=group.count+(group.count===1?' event':' events');
  group.root.open=true;const phase=phaseFor(ev,group);phase.count++;phase.countLabel.textContent=phase.count+(phase.count===1?' event':' events');phase.root.open=true;
- if(isModelStream(ev)){addModelStream(ev,group,phase,nearBottom);return}
  const card=document.createElement('button');card.type='button';card.className='event '+cls(ev.event);card.traceEvent=ev;card.traceIndex=eventCards.length;
  card.setAttribute('aria-keyshortcuts','ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown');eventCards.push(card);
  const row=document.createElement('span');row.className='eventline';row.innerHTML='<span class="time"></span><span class="agent"></span><span class="kind"></span><span class="time turn"></span>';

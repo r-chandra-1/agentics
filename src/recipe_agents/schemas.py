@@ -9,7 +9,7 @@ IngredientUnit = Literal["each", "gram", "ml", "tsp", "tbsp"]
 
 
 class RecipeRequest(BaseModel):
-    """The public request. A session ID groups related turns in the trace."""
+    """The public request. Reusing a session preserves orchestrator history."""
 
     prompt: str = Field(min_length=2, max_length=2_000)
     session_id: str | None = Field(

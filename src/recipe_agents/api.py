@@ -29,7 +29,7 @@ TRACE_STREAM_LEASE_SECONDS = 5.0
 
 app = FastAPI(
     title="Recipe Agents Learning Lab",
-    version="0.3.0",
+    version="0.2.0",
     description=(
         "A small observable Strands multi-agent system. Use POST /recipes, then open /trace-ui "
         "to study each model turn, context window, tool call, and metric."
@@ -56,7 +56,7 @@ async def create_recipe(request: RecipeRequest, response: Response) -> RecipeBat
 
     Session metadata lives in response headers so it does not pollute the requested
     recipe batch. Send `X-Session-ID` back in the next request body's `session_id`
-    to group related requests in one trace.
+    to preserve conversation history.
     """
 
     try:
